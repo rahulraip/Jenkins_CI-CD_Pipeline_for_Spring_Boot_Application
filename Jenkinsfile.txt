@@ -1,0 +1,98 @@
+pipeline {
+    agent any  // This defines where the pipeline will run (e.g., any available agent)
+
+    stages {
+        // Build Stage
+        stage('Clean Target Directory') {
+            steps {
+                // Remove the 'target' directory
+                sh 'sudo rm -rvf target/'
+            }
+        }
+
+        stage('Build Maven Project') {
+            steps {
+                // Run Maven inside a Docker container with the project mounted
+                sh 'sudo docker run -dit -v $(pwd):/app maven mvn -f /app/ clean package'
+            }
+        }
+
+        stage('Wait for Build to Complete') {
+            steps {
+                // Sleep for 30 seconds to ensure the build is complete
+                sh 'sleep 30'
+            }
+        }
+
+        stage('Change Ownership of Target Directory') {
+            steps {
+                // Change ownership of the 'target' directory to the Jenkins user
+                sh 'sudo chown -R jenkins:jenkins target/'
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps {
+                // Build Docker image using the Dockerfile in the current directory
+                sh 'sudo docker build -t rahulr77/myspringapp:v1 .'
+            }
+        }
+
+        stage('Push Docker Image') {
+            steps {
+                // Push the Docker image to DockerHub
+                sh 'sudo docker push rahulr77/myspringapp:v1'
+            }
+        }
+
+        // Testing Stage
+        stage('Remove Existing Container') {
+            steps {
+                script {
+                    // Forcefully remove the existing container
+                    sh 'sudo docker rm -f myapp1'
+                }
+            }
+        }
+
+        stage('Run Docker Container') {
+            steps {
+                script {
+                    // Run a new container from the image
+                    sh 'sudo docker run -dit --name myapp1 -p 8081:8080 rahulr77/myspringapp:v1'
+                }
+            }
+        }
+
+        // Deployment Stage
+        stage('Delete Old Deployment') {
+            steps {
+                script {
+                    sh 'sudo kubectl delete deployment myapp1 || true'
+                }
+            }
+        }
+
+        stage('Create Deployment') {
+            steps {
+                script {
+                    sh 'sudo kubectl create deployment myapp1 --image=rahulr77/myspringapp:v1'
+                }
+            }
+        }
+
+        stage('Apply Deployment Configuration') {
+            steps {
+                script {
+                    sh 'sudo kubectl apply -f /root/mydeployment.yml'
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            echo 'Pipeline execution complete.'
+        }
+    }
+}
